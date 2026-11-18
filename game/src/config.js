@@ -1,55 +1,63 @@
-// Solara Bay — tuning constants. One place for every number the game balances on,
-// so a tweak here retunes driving, chasing, missions and combat together.
+// Solara Bay 3D — tuning constants. 3D city is 660x660 units; the 2D game's
+// 2640px map maps to it by dividing by 4 and centring on (0,0).
 export const WORLD = {
-  size: 2640,          // city is a square, px
-  roadPitch: 330,      // distance between road centre-lines
-  roadWidth: 72,       // asphalt width
-  roadCenters: [165, 495, 825, 1155, 1485, 1815, 2145, 2475],
-  beachTop: 2475,      // sand starts just past the last road
-  waterTop: 2560,      // water is impassable
+  size: 660,            // city square, units (x and z, centred on 0)
+  roadPitch: 82.5,      // distance between road centre-lines
+  roadWidth: 18,        // asphalt width
+  roadCenters: [-288.75, -206.25, -123.75, -41.25, 41.25, 123.75, 206.25, 288.75],
+  beachZ: 330,          // sand starts here (south edge)
+  waterZ: 372,          // water is impassable
 };
 
 export const PLAYER = {
-  radius: 13,
-  walkSpeed: 170,
-  runSpeed: 265,
+  radius: 0.9,
+  walkSpeed: 6.5,
+  runSpeed: 10.5,
   healthMax: 100,
-  enterRange: 56,
+  enterRange: 3.2,
 };
 
 export const CAR = {
-  // type: length, width, top speed px/s, accel, turn rate, colour, label
   types: {
-    sedan:  { len: 52, wid: 26, top: 330, accel: 240, turn: 2.6, color: '#c94f43', label: 'Marlin Sedan' },
-    taxi:   { len: 52, wid: 26, top: 320, accel: 230, turn: 2.6, color: '#f2c230', label: 'Bay Taxi' },
-    van:    { len: 62, wid: 28, top: 260, accel: 170, turn: 2.0, color: '#7d8a99', label: 'Cargo Van' },
-    sports: { len: 54, wid: 26, top: 430, accel: 330, turn: 3.1, color: '#2e6fd8', label: 'Vortex GT' },
-    police: { len: 54, wid: 27, top: 400, accel: 320, turn: 3.0, color: '#1c2733', label: 'SBPD Interceptor' },
-    truck:  { len: 68, wid: 30, top: 240, accel: 150, turn: 1.8, color: '#5a7d4f', label: 'Hauler' },
+    sedan:  { len: 4.6, wid: 2.0, top: 34, accel: 26, turn: 2.2, color: 0xc94f43, label: 'Marlin Sedan' },
+    taxi:   { len: 4.6, wid: 2.0, top: 33, accel: 25, turn: 2.2, color: 0xf2c230, label: 'Bay Taxi' },
+    van:    { len: 5.4, wid: 2.2, top: 26, accel: 17, turn: 1.7, color: 0x7d8a99, label: 'Cargo Van' },
+    sports: { len: 4.7, wid: 2.0, top: 46, accel: 36, turn: 2.6, color: 0x2e6fd8, label: 'Vortex GT' },
+    police: { len: 4.8, wid: 2.1, top: 42, accel: 34, turn: 2.5, color: 0x1c2733, label: 'SBPD Interceptor' },
+    truck:  { len: 6.0, wid: 2.4, top: 24, accel: 15, turn: 1.5, color: 0x5a7d4f, label: 'Hauler' },
   },
-  reverseTop: 120,
-  brake: 420,
-  drag: 0.55,          // per-second speed decay when coasting
+  reverseTop: 12,
+  brake: 46,
+  drag: 0.55,
 };
 
 export const WANTED = {
   max: 5,
-  decayQuietSeconds: 10,   // no crime + no police near -> stars start falling
+  decayQuietSeconds: 10,
   decayPerStarSeconds: 7,
   policeCarsPerStar: [0, 1, 2, 3, 4, 5],
-  bustTouchSeconds: 1.4,   // a foot cop touching you this long busts you
+  bustTouchSeconds: 1.4,
 };
 
 export const COMBAT = {
   pistolDamage: 34,
-  pistolRange: 420,
+  pistolRange: 60,
   pistolCooldown: 0.28,
-  fistDamage: 18,
-  fistRange: 46,
-  fistCooldown: 0.45,
-  bulletSpeed: 900,
+  bulletSpeed: 120,
   startAmmo: 24,
   maxAmmo: 120,
+};
+
+// Mission targets in 3D coords (2D px / 4 - 330, z = 2D y / 4 - 330).
+export const PLACES = {
+  chopShop:  { x: 206,  z: -124, label: 'Chop Shop' },
+  docks:     { x: -206, z: -289, label: 'North Docks' },
+  arcade:    { x: -124, z: -41,  label: 'Neon Arcade' },
+  safehouse: { x: 206,  z: 124,  label: 'Safehouse' },
+  bank:      { x: -41,  z: -206, label: 'Pier Row Bank' },
+  beach:     { x: -206, z: 289,  label: 'Solara Beach' },
+  precinct:  { x: 41,   z: 41,   label: 'SBPD Precinct' },
+  hospital:  { x: -41,  z: 206,  label: 'Bay General' },
 };
 
 export const MISSIONS = [
@@ -100,5 +108,5 @@ export const MISSIONS = [
   },
 ];
 
-export const SAVE_KEY = 'solara-bay-save-v1';
+export const SAVE_KEY = 'solara-bay-3d-save-v1';
 export const STEP = 1 / 60;

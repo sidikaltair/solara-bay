@@ -1,15 +1,8 @@
-// Missions: Mara Voss's 5-job story chain. Each mission is a small state machine
-// — a target point, a stage, sometimes a timer — and completing one pays cash,
-// saves progress, and opens the next. The HUD reads objectiveText() + target().
-import { MISSIONS } from './config.js';
+// Missions: Mara Voss's 5-job story chain, ported from the 2D game to 3D
+// coordinates. Each mission is a small state machine with a target point.
+import { MISSIONS, PLACES } from './config.js';
 import { addCrime } from './police.js';
-
-const CHOP_SHOP = { x: 2145, y: 825, label: 'Chop Shop' };
-const DOCKS = { x: 495, y: 165, label: 'North Docks' };
-const ARCADE = { x: 825, y: 1155, label: 'Neon Arcade' };
-const SAFEHOUSE = { x: 2145, y: 1815, label: 'Safehouse' };
-const BANK = { x: 1155, y: 495, label: 'Pier Row Bank' };
-const BEACH = { x: 495, y: 2475, label: 'Solara Beach' };
+import { dist2 } from './util.js';
 
 export function missionDef(idx) {
   return MISSIONS[idx] ?? null;
@@ -27,12 +20,13 @@ export function startMission(G, idx) {
     timer: def.timeLimit ?? 0,
     holdTimer: 0,
     pickedUp: false,
+    target: null,
   };
-  if (def.id === 'wheels') m.target = CHOP_SHOP;
-  else if (def.id === 'package') m.target = DOCKS;
+  if (def.id === 'wheels') m.target = PLACES.chopShop;
+  else if (def.id === 'package') m.target = PLACES.docks;
   else if (def.id === 'heat') { m.target = null; addCrime(G, 3, 'WANTED: 3 stars — lose the heat!'); }
-  else if (def.id === 'getaway') m.target = ARCADE;
-  else if (def.id === 'bayjob') m.target = BANK;
+  else if (def.id === 'getaway') m.target = PLACES.arcade;
+  else if (def.id === 'bayjob') m.target = PLACES.bank;
   G.mission = m;
   G.banner = { title: def.name, sub: def.brief, until: G.time + 6 };
   for (const line of def.lines) G.toast(line, 4);
@@ -66,7 +60,7 @@ export function missionTarget(G) {
 }
 
 function arrive(G, target, radius) {
-  return Math.hypot(G.player.x - target.x, G.player.y - target.y) < radius;
+  return dist2(G.player.x, G.player.z, target.x, target.z) < radius;
 }
 
 function completeMission(G) {
@@ -87,7 +81,7 @@ export function updateMissions(G, dt) {
   const p = G.player;
   switch (m.def.id) {
     case 'wheels':
-      if (p.car && arrive(G, CHOP_SHOP, 80)) completeMission(G);
+      if (p.car && arrive(G, PLACES.chopShop, 10)) completeMission(G);
       break;
     case 'package': {
       m.timer -= dt;
@@ -96,7 +90,7 @@ export function updateMissions(G, dt) {
         startMission(G, m.idx); // retry the same job
         break;
       }
-      if (arrive(G, DOCKS, 80)) completeMission(G);
+      if (arrive(G, PLACES.docks, 10)) completeMission(G);
       break;
     }
     case 'heat':
@@ -104,33 +98,29 @@ export function updateMissions(G, dt) {
       break;
     case 'getaway':
       if (!m.pickedUp) {
-        if (arrive(G, ARCADE, 70)) {
+        if (arrive(G, PLACES.arcade, 9)) {
           m.pickedUp = true;
-          m.target = SAFEHOUSE;
+          m.target = PLACES.safehouse;
           addCrime(G, 2, 'Dice is in the car! The SBPD is onto you — GO!');
           G.toast('DICE: Drive, drive! Safehouse on the east side!', 4);
         }
-      } else if (p.car && arrive(G, SAFEHOUSE, 80)) {
+      } else if (p.car && arrive(G, PLACES.safehouse, 10)) {
         completeMission(G);
       }
       break;
     case 'bayjob':
       if (m.stage === 'go') {
-        if (arrive(G, BANK, 85)) { m.stage = 'hold'; m.holdTimer = 0; }
+        if (arrive(G, PLACES.bank, 10)) { m.stage = 'hold'; m.holdTimer = 0; }
       } else if (m.stage === 'hold') {
-        if (arrive(G, BANK, 95)) {
-          m.holdTimer += dt;
-          if (m.holdTimer >= 5) {
-            m.stage = 'escape';
-            m.target = BEACH;
-            addCrime(G, 4, 'THE TAKE IS YOURS! 4 stars — run for the beach!');
-            G.toast('MARA: Every cop in Solara Bay is coming. RUN!', 4);
-          }
-        } else {
-          m.holdTimer = Math.max(0, m.holdTimer - dt * 2);
+        m.holdTimer += dt;
+        if (m.holdTimer >= 5) {
+          m.stage = 'escape';
+          m.target = PLACES.beach;
+          addCrime(G, 4, 'The take is yours! Every cop in Solara Bay is coming!');
+          G.toast('MARA: The take is yours! Run for the beach!', 4);
         }
-      } else if (m.stage === 'escape' && arrive(G, BEACH, 90)) {
-        completeMission(G);
+      } else if (m.stage === 'escape') {
+        if (arrive(G, PLACES.beach, 12)) completeMission(G);
       }
       break;
     default:

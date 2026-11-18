@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solara Bay — Open-World Crime Game</title>
+<title>Solara Bay 3D — Open-World Crime Game</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #10131a;
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #eef1f5; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   #selftest { position: absolute; left: -9999px; top: 0; }
+  #crosshair { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 22px; color: rgba(255,255,255,0.85); text-shadow: 0 0 4px #000; z-index: 6; pointer-events: none; }
 
   /* ---- HUD ---- */
   #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -69,9 +71,10 @@
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Solara Bay: a top-down open-world crime game. Walk, steal cars, outrun the police and run jobs for Mara Voss."></canvas>
+<canvas id="game" aria-label="Solara Bay 3D: a third-person open-world crime game. Walk, steal cars, outrun the police and run jobs for Mara Voss."></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 <div id="selftest"></div>
+<div id="crosshair">+</div>
 
 <div id="hud" class="hidden">
   <div id="hud-topleft">
@@ -92,7 +95,7 @@
 
 <div class="screen show" id="screen-menu">
   <h1>SOLARA BAY</h1>
-  <h2>AN OPEN-WORLD CRIME STORY</h2>
+  <h2>AN OPEN-WORLD CRIME STORY — 3D</h2>
   <p>You came to Solara Bay with $150 and a name nobody knows. Mara Voss, the fixer
      who runs the bay, has five jobs for you — if you can drive, run, and disappear
      fast enough to survive them.</p>
@@ -103,10 +106,10 @@
   </div>
   <div class="controls">
     <b>WASD</b> move &nbsp;·&nbsp; <b>Shift</b> run &nbsp;·&nbsp; <b>E</b> enter / exit car &nbsp;·&nbsp;
-    <b>Mouse + click</b> shoot &nbsp;·&nbsp; <b>Space</b> brake &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> mute<br>
+    <b>Drag mouse</b> look around &nbsp;·&nbsp; <b>Click</b> shoot &nbsp;·&nbsp; <b>Space</b> brake &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> mute<br>
     Steal a car in front of witnesses and the heat goes up. Lose the stars to cool off.
   </div>
-  <div class="badge-row"><span>5 MISSIONS</span><span>OPEN CITY</span><span>POLICE CHASES</span><span>SAVE GAME</span></div>
+  <div class="badge-row"><span>5 MISSIONS</span><span>OPEN CITY</span><span>POLICE CHASES</span><span>SAVE GAME</span><span>THIRD PERSON 3D</span></div>
 </div>
 
 <div class="screen" id="screen-pause">
