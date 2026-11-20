@@ -10,9 +10,9 @@ A complete 3D third-person open-world crime game, built for the
 [gta6-01 "Make GTA 6" bounty](https://make.fun/bounty/gta6-01) ($1,666,
 top 100 paid). Low-poly 3D in the spirit of Vice City Stories: a visible
 character, a drivable city, police chases and five jobs for the fixer who
-runs the bay. Three.js (vendored, no network requests), vanilla JS ES
-modules, procedural art, WebAudio synth — every model is built from code
-and every sound is synthesised.
+runs the bay. Three.js r160 loaded from CDN, vanilla JS ES modules,
+procedural art, WebAudio synth — every model is built from code and every
+sound is synthesised.
 
 You came to Solara Bay with $150 and a name nobody knows. Mara Voss, the fixer
 who runs the bay, has five jobs for you — if you can drive, run, and disappear
@@ -26,68 +26,72 @@ Serve it locally (no build step) and open http://localhost:8123:
 node serve.mjs 8123
 ```
 
-Or open `game/index.html` from any static file server. It runs fully
-offline in a desktop browser.
+Or open `game/index.html` from any static file server. It needs internet
+once, to load Three.js r160 from the unpkg CDN.
 
 | Key | Action |
 | --- | --- |
 | WASD | Move (on foot) / drive (in a car) |
-| Shift | Run |
+| Shift | Sprint |
 | E | Enter / exit a car (steal any car on the street) |
 | Mouse drag | Look around (third-person camera follows you) |
 | Click | Shoot the pistol |
-| Space | Brake / handbrake |
-| P / Esc | Pause |
+| R | Reload |
+| Esc | Pause |
 | M | Mute |
 
 ## What's in the bay
 
-- **A 3D city** — a 660×660-unit low-poly city: road grid, ~120 windowed
-  buildings, parks, palms, a beach and the water's edge, day and golden-hour
+- **A 3D city** — a 660×660-unit low-poly city: road grid, windowed
+  buildings, palms, a beach and the water's edge, day and golden-hour
   dusk lighting with shadows. Same seed, same city.
-- **Cars & traffic** — six car types (sedan, taxi, van, sports car, truck,
-  police interceptor). Traffic drives the streets, parks, and turns at
-  intersections. Steal any car — if someone sees you, the heat goes up.
-- **Pedestrians** — they walk the sidewalks, cross at intersections, and flee
-  from gunshots and speeding cars.
-- **Wanted & police** — 0–5 stars. Crimes (theft, hitting peds, shooting,
-  decking a cop) raise the heat; SBPD interceptors with flashing light bars
-  chase and ram, foot cops chase you down and bust you. Lay low and the stars
-  fall.
-- **Five missions for Mara Voss** — steal a getaway car, a 90-second package
-  run, losing a 3-star heat, a getaway pickup under pursuit, and the final
-  Bay Job heist. Glowing waypoint beam, minimap marker, objective banner,
-  dialogue, cash payouts.
-- **Combat** — pistol with mouse aim, foot cops at higher wanted levels,
-  health/ammo pickups.
-- **HUD & minimap** — cash, health, wanted stars, clock, speed, ammo, live
+- **Cars & traffic** — traffic cars loop the road grid on rectangular
+  routes; parked cars wait on the streets. Steal any car — if someone
+  sees you take a traffic car, the heat goes up.
+- **Pedestrians** — they walk the sidewalks and flee from gunshots.
+- **Wanted & police** — 0–5 stars. Crimes (theft, shooting peds or cops,
+  ramming a cop car) raise the heat; police interceptors with flashing
+  light bars chase and ram, foot cops close in at 3+ stars. Lay low and
+  the stars fall.
+- **Five missions for Mara Voss** — First Job (reach the docks), Borrowed
+  Wheels (steal a car, bring it to the garage), The Drop (deliver it to
+  the beach), Loose Ends (disable 2 police cars), Getaway (lose the heat,
+  reach the safehouse). Glowing waypoint beam, minimap marker, objective
+  banner, cash payouts.
+- **Combat** — pistol with mouse aim, muzzle flash and tracer, ammo +
+  reload. Three hits disable a police car.
+- **HUD & minimap** — cash, health, wanted stars, speed, ammo, live
   circular minimap with police blips and the mission marker.
-- **Save / load** — progress, cash and position persist in localStorage;
-  continue from the title screen.
+- **Save / load** — money, mission progress, health, position and wanted
+  level persist in localStorage; continue from where you left off.
 - **Sound** — WebAudio synth: engine hum that follows your speed, sirens,
-  gunshots, crashes, pickup blips and a bass groove. No audio files.
+  gunshots, pickup blips and a mission jingle. No audio files.
 
 ## Shots
 
-`shots.json` lists the four deterministic screenshot scenes
-(`?shot=chase|foot|mission|dusk&seed=1`): the police chase cover, on foot
-downtown, the Getaway Driver pickup, and a dusk drive down to the beach.
+`?shot=1..4` stages the four deterministic screenshot scenes: the police
+chase (1), the on-foot shootout (2), the mission waypoint (3), and the dusk
+skyline (4). Screenshots live in `screenshots/` (1280×800 JPEG).
 
 ## Self-test
 
-`?selftest=1` runs a scripted play-through (walk / steal / drive / mission 1 /
-police spawn / shoot / save) and reports the result — 10/10 PASS.
+`?selftest=1` runs ten checks (Three.js loaded, renderer, world, player,
+missions, movement, car enter/exit, waypoint beam, minimap, audio) and
+reports the result — 10/10 PASS.
 
 ## Files
 
-- `game/` — the playable game (`index.html` + `src/*.js` ES modules +
-  `vendor/three.module.js`, Three.js r160 vendored under MIT)
+- `game/` — the playable game (`index.html` + `src/*.js` ES modules;
+  Three.js r160 from the unpkg CDN, no vendored library)
+- `game/src/` — `state.js` (shared state + helpers), `world.js` (seeded
+  city), `player.js` (on-foot character), `car.js` (cars + arcade physics),
+  `traffic.js` (traffic routes + parked cars), `police.js` (wanted + chase),
+  `combat.js` (pistol + pedestrians), `missions.js` (5 chained jobs),
+  `hud.js` (HUD + minimap), `audio.js` (WebAudio synth), `save.js`
+  (localStorage + pause), `selftest.js` (10 checks), `shots.js`
+  (screenshot staging), `main.js` (boot + game loop + camera + input)
 - `screenshots/` — the four entry screenshots (1280×800 JPEG)
-- `main.ts` — the entry program: copies `game/` + `screenshots/` to the
-  output dir and writes `dossier.json`
 - `serve.mjs` — tiny static server for local play-testing (`node serve.mjs 8123`)
-- `serve.ts` — same, on port 8080 (`node serve.ts`)
-- `vendor/makefun-game.ts` — the make.fun dossier library (kit file)
 
 ## License
 
