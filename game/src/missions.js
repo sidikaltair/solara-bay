@@ -1,129 +1,191 @@
-// Missions: Mara Voss's 5-job story chain, ported from the 2D game to 3D
-// coordinates. Each mission is a small state machine with a target point.
-import { MISSIONS, PLACES } from './config.js';
-import { addCrime } from './police.js';
-import { dist2 } from './util.js';
+// Mara Voss missions: 5 chained jobs. Each mission has a waypoint beam
+// (tall glowing cylinder + ground ring) so the player always knows where to
+// go. Completing one pays out and unlocks the next.
+import * as THREE from 'three';
+import { G, dist2D } from './state.js';
+import { addWanted } from './police.js';
 
-export function missionDef(idx) {
-  return MISSIONS[idx] ?? null;
+const MISSIONS = [
+  {
+    title: 'First Job',
+    obj: 'Head to the docks — Mara is waiting at the beach.',
+    type: 'reach',
+    target: { x: -40, z: 285 },
+    radius: 10,
+    reward: 200,
+  },
+  {
+    title: 'Borrowed Wheels',
+    obj: 'Steal a car (E next to one) and bring it to the garage up north.',
+    type: 'steal',
+    target: { x: 55, z: -260 },
+    radius: 12,
+    reward: 350,
+  },
+  {
+    title: 'The Drop',
+    obj: 'Drive the car down to the beach drop point. Don’t lose it.',
+    type: 'deliver',
+    target: { x: 180, z: 285 },
+    radius: 12,
+    reward: 400,
+  },
+  {
+    title: 'Loose Ends',
+    obj: 'Mara’s tail is on you. Disable 2 police cars — shoot them (3 hits each).',
+    type: 'eliminate',
+    target: { x: 0, z: 0 },
+    radius: 9999,
+    reward: 600,
+    need: 2,
+  },
+  {
+    title: 'Getaway',
+    obj: 'Lose the heat (0 stars), then reach the safehouse.',
+    type: 'escape',
+    target: { x: -220, z: -220 },
+    radius: 12,
+    reward: 1000,
+  },
+];
+
+let beam = null;
+let beamRing = null;
+let beamLight = null;
+let killed = 0;          // police cars disabled during mission 4
+let bannerT = 0;
+
+export function initMissions() {
+  G.missions = MISSIONS.map(m => ({ ...m, done: false }));
+  G.missionIndex = 0;
+
+  beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.2, 2.2, 70, 16, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd23e, transparent: true, opacity: 0.32,
+      side: THREE.DoubleSide, depthWrite: false }));
+  beam.visible = false;
+  beam.name = 'waypoint-beam';
+  G.scene.add(beam);
+  G._beam = beam;
+
+  beamRing = new THREE.Mesh(
+    new THREE.RingGeometry(2.6, 4.2, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffd23e, transparent: true, opacity: 0.8, side: THREE.DoubleSide }));
+  beamRing.rotation.x = -Math.PI / 2;
+  beamRing.visible = false;
+  G.scene.add(beamRing);
+
+  beamLight = new THREE.PointLight(0xffd23e, 30, 40);
+  beamLight.visible = false;
+  G.scene.add(beamLight);
+
+  placeBeam();
+  return G.missions;
 }
 
-export function startMission(G, idx) {
-  const def = missionDef(idx);
-  if (!def) {
-    G.mission = null;
-    G.state = 'complete';
-    return;
-  }
-  const m = {
-    idx, def, stage: 'go',
-    timer: def.timeLimit ?? 0,
-    holdTimer: 0,
-    pickedUp: false,
-    target: null,
-  };
-  if (def.id === 'wheels') m.target = PLACES.chopShop;
-  else if (def.id === 'package') m.target = PLACES.docks;
-  else if (def.id === 'heat') { m.target = null; addCrime(G, 3, 'WANTED: 3 stars — lose the heat!'); }
-  else if (def.id === 'getaway') m.target = PLACES.arcade;
-  else if (def.id === 'bayjob') m.target = PLACES.bank;
-  G.mission = m;
-  G.banner = { title: def.name, sub: def.brief, until: G.time + 6 };
-  for (const line of def.lines) G.toast(line, 4);
-  G.audio.mission();
+function placeBeam() {
+  const m = G.missions[G.missionIndex];
+  if (!m) { beam.visible = false; beamRing.visible = false; beamLight.visible = false; return; }
+  beam.position.set(m.target.x, 35, m.target.z);
+  beamRing.position.set(m.target.x, 0.15, m.target.z);
+  beamLight.position.set(m.target.x, 8, m.target.z);
+  beam.visible = true; beamRing.visible = true; beamLight.visible = true;
 }
 
-export function objectiveText(G) {
-  const m = G.mission;
-  if (!m) return 'All jobs done — Solara Bay is yours. Free roam!';
+export function currentMission() {
+  return G.missions[G.missionIndex] || null;
+}
+
+export function missionProgressText() {
+  const m = currentMission();
+  if (!m) return 'All jobs done — Solara Bay is yours.';
+  if (m.type === 'eliminate') return `${m.obj}  (${killed}/${m.need} disabled)`;
+  return m.obj;
+}
+
+function playerPos() {
   const p = G.player;
-  switch (m.def.id) {
-    case 'wheels':
-      return p.car ? 'Deliver the car to the Chop Shop' : 'Steal a car — walk up to one and press E';
-    case 'package':
-      return `Deliver the package to the North Docks — ${Math.max(0, Math.ceil(m.timer))}s left`;
-    case 'heat':
-      return `Lose the heat — wanted ${'★'.repeat(G.wanted.stars)}${'☆'.repeat(5 - G.wanted.stars)} — stay out of sight`;
-    case 'getaway':
-      return m.pickedUp ? 'Dice is in! Drive him to the Safehouse' : 'Pick up Dice at the Neon Arcade';
-    case 'bayjob':
-      return m.stage === 'hold'
-        ? `Hold the bank — ${Math.max(0, (5 - m.holdTimer)).toFixed(0)}s`
-        : m.stage === 'escape' ? 'Grab the take! Escape to Solara Beach' : 'Get to the Pier Row Bank';
-    default:
-      return m.def.brief;
-  }
+  if (!p) return { x: 0, z: 0 };
+  return p.car ? { x: p.car.x, z: p.car.z } : { x: p.x, z: p.z };
 }
 
-export function missionTarget(G) {
-  return G.mission ? G.mission.target : null;
+export function notePoliceDisabled() {
+  const m = currentMission();
+  if (m && m.type === 'eliminate') killed += 1;
 }
 
-function arrive(G, target, radius) {
-  return dist2(G.player.x, G.player.z, target.x, target.z) < radius;
-}
-
-function completeMission(G) {
-  const m = G.mission;
-  const reward = m.def.reward;
-  G.player.cash += reward;
-  G.completed.push(m.def.id);
-  G.toast(`${m.def.name} complete! +$${reward}`, 4);
-  G.banner = { title: 'JOB DONE', sub: `+$${reward} — ${m.def.name}`, until: G.time + 4 };
-  G.audio.payday();
-  G.saveGame();
-  startMission(G, m.idx + 1);
-}
-
-export function updateMissions(G, dt) {
-  const m = G.mission;
+function completeMission() {
+  const m = currentMission();
   if (!m) return;
-  const p = G.player;
-  switch (m.def.id) {
-    case 'wheels':
-      if (p.car && arrive(G, PLACES.chopShop, 10)) completeMission(G);
+  m.done = true;
+  G.money += m.reward;
+  G.missionIndex += 1;
+  killed = 0;
+  showBanner(`Job done — +$${m.reward}`);
+  if (typeof window !== 'undefined' && window.__sfx) window.__sfx('mission');
+  if (G.missionIndex >= G.missions.length) {
+    beam.visible = false; beamRing.visible = false; beamLight.visible = false;
+    showBanner('All jobs done — Solara Bay is yours, kid.');
+  } else {
+    placeBeam();
+  }
+}
+
+export function showBanner(text) {
+  const el = document.getElementById('banner');
+  if (!el) return;
+  el.textContent = text;
+  el.style.opacity = '1';
+  bannerT = 3.2;
+}
+
+export function updateMissions(dt) {
+  if (bannerT > 0) {
+    bannerT -= dt;
+    if (bannerT <= 0) {
+      const el = document.getElementById('banner');
+      if (el) el.style.opacity = '0';
+    }
+  }
+  const m = currentMission();
+  if (!m) return;
+  // Beam pulse.
+  if (beam.visible) {
+    const s = 1 + Math.sin(G.time * 3) * 0.12;
+    beam.scale.set(s, 1, s);
+    beamRing.scale.setScalar(1 + Math.sin(G.time * 3) * 0.15);
+  }
+  const pos = playerPos();
+  const d = dist2D(pos.x, pos.z, m.target.x, m.target.z);
+  switch (m.type) {
+    case 'reach':
+      if (d < m.radius) completeMission();
       break;
-    case 'package': {
-      m.timer -= dt;
-      if (m.timer <= 0) {
-        G.toast('Too slow! Mara is not happy — try the run again.', 4);
-        startMission(G, m.idx); // retry the same job
-        break;
-      }
-      if (arrive(G, PLACES.docks, 10)) completeMission(G);
+    case 'steal':
+      // Needs the player IN a car (any car) inside the garage radius.
+      if (G.mode === 'drive' && d < m.radius) completeMission();
+      break;
+    case 'deliver':
+      if (G.mode === 'drive' && d < m.radius) completeMission();
+      break;
+    case 'eliminate': {
+      // Count disabled police cars since this mission started.
+      const disabledNow = G.police.filter(c => c.disabled).length;
+      if (disabledNow >= m.need) completeMission();
       break;
     }
-    case 'heat':
-      if (G.wanted.stars === 0) completeMission(G);
-      break;
-    case 'getaway':
-      if (!m.pickedUp) {
-        if (arrive(G, PLACES.arcade, 9)) {
-          m.pickedUp = true;
-          m.target = PLACES.safehouse;
-          addCrime(G, 2, 'Dice is in the car! The SBPD is onto you — GO!');
-          G.toast('DICE: Drive, drive! Safehouse on the east side!', 4);
-        }
-      } else if (p.car && arrive(G, PLACES.safehouse, 10)) {
-        completeMission(G);
-      }
-      break;
-    case 'bayjob':
-      if (m.stage === 'go') {
-        if (arrive(G, PLACES.bank, 10)) { m.stage = 'hold'; m.holdTimer = 0; }
-      } else if (m.stage === 'hold') {
-        m.holdTimer += dt;
-        if (m.holdTimer >= 5) {
-          m.stage = 'escape';
-          m.target = PLACES.beach;
-          addCrime(G, 4, 'The take is yours! Every cop in Solara Bay is coming!');
-          G.toast('MARA: The take is yours! Run for the beach!', 4);
-        }
-      } else if (m.stage === 'escape') {
-        if (arrive(G, PLACES.beach, 12)) completeMission(G);
-      }
+    case 'escape':
+      if (G.wanted === 0 && d < m.radius) completeMission();
       break;
     default:
       break;
   }
+}
+
+// Jump the mission pointer (used by screenshot staging).
+export function setMissionIndex(i) {
+  G.missionIndex = Math.max(0, Math.min(G.missions.length - 1, i));
+  killed = 0;
+  placeBeam();
 }

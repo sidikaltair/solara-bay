@@ -1,150 +1,164 @@
-// Solara Bay 3D — the player. A low-poly character (boxes + cylinders) with
-// a walk swing, on-foot movement relative to the camera, and arcade driving.
-import * as THREE from '../vendor/three.module.js';
-import { CAR, PLAYER } from './config.js';
-import { angleLerp, clamp, dist2 } from './util.js';
+// On-foot player: a simple low-poly figure with walk animation, camera-
+// relative WASD movement, building collision, and car enter/exit.
+import * as THREE from 'three';
+import { G, clamp, collideCircle, dist2D } from './state.js';
 
-export function makePlayerMesh() {
+export function createPlayer(x, z) {
   const g = new THREE.Group();
-  const skin = new THREE.MeshLambertMaterial({ color: 0xc98a5a });
-  const shirt = new THREE.MeshLambertMaterial({ color: 0x2e8a6a });
-  const pants = new THREE.MeshLambertMaterial({ color: 0x2a3442 });
-  const hair = new THREE.MeshLambertMaterial({ color: 0x1c1410 });
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.0, 0.45), shirt);
-  torso.position.y = 1.35;
-  torso.castShadow = true;
-  g.add(torso);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin);
-  head.position.y = 2.12;
+  const jacket = new THREE.MeshLambertMaterial({ color: 0x274b8f });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xd9a066 });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x2b2f36 });
+
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.75, 4, 8), jacket);
+  body.position.y = 1.25;
+  body.castShadow = true;
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 10), skin);
+  head.position.y = 2.05;
   head.castShadow = true;
   g.add(head);
-  const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.18, 0.54), hair);
-  hairTop.position.y = 2.4;
-  g.add(hairTop);
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.9, 0.36), pants);
-  legL.position.set(-0.22, 0.45, 0);
-  legL.castShadow = true;
+
+  const cap = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.31, 0.31, 0.1, 12),
+    new THREE.MeshLambertMaterial({ color: 0x111111 }));
+  cap.position.y = 2.28;
+  g.add(cap);
+
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), pants);
+  legL.position.set(-0.2, 0.35, 0);
   g.add(legL);
   const legR = legL.clone();
-  legR.position.x = 0.22;
+  legR.position.x = 0.2;
   g.add(legR);
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.85, 0.3), shirt);
-  armL.position.set(-0.58, 1.35, 0);
-  armL.castShadow = true;
+
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.65, 0.18), jacket);
+  armL.position.set(-0.55, 1.3, 0);
   g.add(armL);
   const armR = armL.clone();
-  armR.position.x = 0.58;
+  armR.position.x = 0.55;
   g.add(armR);
-  g.userData = { legL, legR, armL, armR, torso };
-  return g;
-}
 
-export function makePlayer(x, z) {
-  return {
-    x, z, angle: 0, mesh: makePlayerMesh(),
-    health: PLAYER.healthMax, cash: 150, ammo: 24,
-    car: null, walkPhase: 0, moving: false,
+  // Pistol in the right hand (visible when aiming).
+  const gun = new THREE.Group();
+  const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.42),
+    new THREE.MeshLambertMaterial({ color: 0x181818 }));
+  gun.add(gunBody);
+  gun.position.set(0.55, 1.05, 0.35);
+  g.add(gun);
+
+  g.position.set(x, 0, z);
+  G.scene.add(g);
+
+  const p = {
+    mesh: g, gun, legL, legR, armL, armR,
+    x, z, angle: 0,
+    walkT: 0,
+    moving: false,
+    car: null,          // car being driven, or null
+    aiming: false,
   };
+  G.player = p;
+  return p;
 }
 
-export function syncPlayerMesh(p) {
+export function updatePlayer(dt) {
+  const p = G.player;
+  if (!p || G.mode !== 'foot' || G.paused) return;
+  const k = G.keys;
+  const fwd = (k['KeyW'] || k['ArrowUp'] ? 1 : 0) - (k['KeyS'] || k['ArrowDown'] ? 1 : 0);
+  const strafe = (k['KeyD'] || k['ArrowRight'] ? 1 : 0) - (k['KeyA'] || k['ArrowLeft'] ? 1 : 0);
+  const sprint = (k['ShiftLeft'] || k['ShiftRight']) ? 1.55 : 1;
+  const speed = 6 * sprint;
+
+  let mx = 0, mz = 0;
+  if (fwd !== 0 || strafe !== 0) {
+    // Camera-relative movement. forward = (sin yaw, cos yaw); right =
+    // cross(forward, up) = (-cos yaw, sin yaw).
+    const sy = Math.sin(G.camYaw), cy = Math.cos(G.camYaw);
+    mx = sy * fwd - cy * strafe;
+    mz = cy * fwd + sy * strafe;
+    const len = Math.hypot(mx, mz);
+    mx /= len; mz /= len;
+    p.moving = true;
+    p.angle = Math.atan2(mx, mz);
+  } else {
+    p.moving = false;
+  }
+
+  const nx = p.x + mx * speed * dt;
+  const nz = p.z + mz * speed * dt;
+  const hit = collideCircle(nx, nz, 0.6);
+  p.x = hit.x; p.z = hit.z;
   p.mesh.position.set(p.x, 0, p.z);
   p.mesh.rotation.y = p.angle;
-  const swing = p.moving ? Math.sin(p.walkPhase) * 0.55 : 0;
-  p.mesh.userData.legL.rotation.x = swing;
-  p.mesh.userData.legR.rotation.x = -swing;
-  p.mesh.userData.armL.rotation.x = -swing * 0.8;
-  p.mesh.userData.armR.rotation.x = swing * 0.8;
-}
 
-// On foot: WASD relative to the camera yaw; Shift runs.
-export function stepPlayerOnFoot(G, p, input, camYaw, dt) {
-  let ix = 0; let iz = 0;
-  if (input.forward) iz -= 1;
-  if (input.back) iz += 1;
-  if (input.left) ix -= 1;
-  if (input.right) ix += 1;
-  p.moving = ix !== 0 || iz !== 0;
-  if (!p.moving) { syncPlayerMesh(p); return; }
-  const len = Math.hypot(ix, iz);
-  ix /= len; iz /= len;
-  // Camera-relative: forward is -Z rotated by camYaw.
-  const fx = -Math.sin(camYaw); const fz = -Math.cos(camYaw);
-  const rx = Math.cos(camYaw); const rz = -Math.sin(camYaw);
-  const mx = fx * -iz + rx * ix;
-  const mz = fz * -iz + rz * ix;
-  const speed = input.run ? PLAYER.runSpeed : PLAYER.walkSpeed;
-  p.x += mx * speed * dt;
-  p.z += mz * speed * dt;
-  p.angle = angleLerp(p.angle, Math.atan2(mx, mz), Math.min(1, dt * 12));
-  p.walkPhase += speed * dt * 1.6;
-  const hit = G.city.collideCircle(p.x, p.z, PLAYER.radius);
-  p.x = hit.x; p.z = hit.z;
-  syncPlayerMesh(p);
-}
-
-// Driving: W/S accel + brake/reverse, A/D steer (steering follows speed sign).
-export function stepPlayerDriving(G, p, input, dt) {
-  const car = p.car;
-  if (!car) return;
-  const def = CAR.types[car.type];
-  if (input.forward) car.speed = Math.min(car.speed + def.accel * dt, def.top);
-  else if (input.back) {
-    if (car.speed > 1) car.speed = Math.max(car.speed - 46 * dt, 0);
-    else car.speed = Math.max(car.speed - def.accel * 0.6 * dt, -CAR.reverseTop);
+  // Walk swing.
+  if (p.moving) {
+    p.walkT += dt * 10 * sprint;
+    const s = Math.sin(p.walkT) * 0.5;
+    p.legL.rotation.x = s;
+    p.legR.rotation.x = -s;
+    p.armL.rotation.x = -s * 0.7;
+    p.armR.rotation.x = s * 0.7;
   } else {
-    car.speed -= car.speed * CAR.drag * dt;
-    if (Math.abs(car.speed) < 0.2) car.speed = 0;
+    p.legL.rotation.x *= 0.8;
+    p.legR.rotation.x *= 0.8;
+    p.armL.rotation.x *= 0.8;
+    p.armR.rotation.x *= 0.8;
   }
-  let steer = 0;
-  if (input.left) steer += 1;
-  if (input.right) steer -= 1;
-  const dirSign = car.speed >= 0 ? 1 : -1;
-  car.angle += steer * def.turn * dirSign * Math.min(1, Math.abs(car.speed) / 12) * dt;
-  car.x += Math.sin(car.angle) * car.speed * dt;
-  car.z += Math.cos(car.angle) * car.speed * dt;
-  const hit = G.city.collideCircle(car.x, car.z, 1.7);
-  if (hit.x !== car.x || hit.z !== car.z) car.speed *= 0.5;
-  car.x = hit.x; car.z = hit.z;
-  p.x = car.x; p.z = car.z; p.angle = car.angle;
-  p.moving = Math.abs(car.speed) > 1;
+  // Aim pose: right arm forward.
+  p.gun.visible = true;
+  if (p.aiming) {
+    p.armR.rotation.x = -1.35;
+    p.gun.position.set(0.3, 1.45, 0.55);
+  } else {
+    p.gun.position.set(0.55, 1.05, 0.35);
+  }
 }
 
-export function nearestCar(G, maxDist) {
-  let best = null; let bestD = maxDist;
-  for (const car of G.cars) {
-    if (car.playerDriven) continue;
-    const d = dist2(G.player.x, G.player.z, car.x, car.z);
-    if (d < bestD) { bestD = d; best = car; }
+export function nearestCar(maxD) {
+  const p = G.player;
+  let best = null, bestD = maxD;
+  for (const c of G.cars) {
+    if (c.disabled || c.driver === 'player') continue;
+    const d = dist2D(p.x, p.z, c.x, c.z);
+    if (d < bestD) { bestD = d; best = c; }
   }
   return best;
 }
 
-export function enterExitCar(G) {
+export function enterCar(car) {
   const p = G.player;
-  if (p.car) {
-    const car = p.car;
-    car.playerDriven = false;
-    car.speed *= 0.4;
-    // Step out to the driver's side.
-    const sx = Math.cos(car.angle); const sz = -Math.sin(car.angle);
-    p.x = car.x + sx * 2.2; p.z = car.z + sz * 2.2;
-    const hit = G.city.collideCircle(p.x, p.z, PLAYER.radius);
-    p.x = hit.x; p.z = hit.z;
-    p.car = null;
-    p.mesh.visible = true;
-    syncPlayerMesh(p);
-    return 'exit';
-  }
-  const car = nearestCar(G, PLAYER.enterRange);
-  if (!car) return null;
-  if (car.type === 'police') return null; // cannot jack a cop car
+  if (!car || G.mode !== 'foot') return false;
+  const wasTraffic = car.driver === 'traffic';
+  const wasParked = car.driver === null;
+  car.driver = 'player';
   p.car = car;
-  car.playerDriven = true;
-  car.chasing = false;
-  car.parked = false;
+  G.mode = 'drive';
   p.mesh.visible = false;
-  p.x = car.x; p.z = car.z; p.angle = car.angle;
-  return 'enter';
+  // Stealing a traffic car (or any occupied car) is a crime. Parked cars
+  // that belong to nobody are free — but taking a traffic car is theft.
+  if (wasTraffic) {
+    G.wanted = Math.min(5, G.wanted + 2);
+    G.lastCrimeAt = G.time;
+  }
+  return true;
+}
+
+export function exitCar() {
+  const p = G.player;
+  if (G.mode !== 'drive' || !p.car) return;
+  const car = p.car;
+  car.driver = null;
+  p.car = null;
+  G.mode = 'foot';
+  // Step out to the left of the car.
+  const sx = car.x + Math.cos(car.angle) * 2.2;
+  const sz = car.z - Math.sin(car.angle) * 2.2;
+  const hit = collideCircle(sx, sz, 0.6);
+  p.x = hit.x; p.z = hit.z;
+  p.mesh.position.set(p.x, 0, p.z);
+  p.mesh.visible = true;
 }

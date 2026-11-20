@@ -1,126 +1,103 @@
-// Screenshot scenes behind ?shot=chase|foot|mission|dusk (with &seed=N).
-// Each one stages the real game state — a car, police, pedestrians, a live
-// mission — then lets the world simmer so traffic and peds settle into
-// natural positions. The same seed always gives the same frame.
-import { STEP } from './config.js';
-import { makeCar } from './vehicles.js';
-import { makePed } from './peds.js';
-import { startMission } from './missions.js';
-import { stepTrafficCar } from './vehicles.js';
-import { stepPed } from './peds.js';
+// Screenshot staging (?shot=1..4). Each shot arranges the scene into a
+// readable, dramatic frame and leaves it there — the game loop keeps
+// rendering, so a headless --screenshot after a virtual-time budget captures
+// the staged frame. All staging uses the live game objects (no fake props).
+import * as THREE from 'three';
+import { G, clamp } from './state.js';
+import { makeCar } from './car.js';
+import { enterCar } from './player.js';
+import { spawnFootCop } from './police.js';
+import { setDusk } from './world.js';
+import { setMissionIndex } from './missions.js';
+import { shoot } from './combat.js';
 
-// Let traffic + peds move for `seconds` so the frame looks alive, not posed.
-function simmer(G, seconds) {
-  for (let i = 0; i < seconds / STEP; i += 1) {
-    G.time += STEP;
-    for (const car of G.cars) stepTrafficCar(G.city, car, G.cars, STEP);
-    for (const ped of G.peds) stepPed(G.city, ped, G.player, null, STEP);
-  }
+function setCam(yaw, pitch, dist, tx, ty, tz) {
+  G.camYaw = yaw;
+  G.camPitch = pitch;
+  G.camDist = dist;
+  G._camTarget = { x: tx, y: ty, z: tz };
 }
 
-function putPlayerInCar(G, type, x, z, angle) {
-  const car = makeCar(G.rng, type, x, z, angle, {});
-  car.speed = 22;
-  car.playerDriven = true;
-  G.cars.push(car);
-  G.scene.add(car.mesh);
-  G.player.car = car;
-  G.player.mesh.visible = false;
-  G.player.x = x; G.player.z = z; G.player.angle = angle;
+function playerDriveAt(x, z, angle) {
+  const p = G.player;
+  const car = makeCar({ x, z, angle, driver: null });
+  car.maxSpeed = 26;
+  enterCar(car);
+  car.speed = 14;
   return car;
 }
 
-function addCopBehind(G, x, z, angle, speed) {
-  const cop = makeCar(G.rng, 'police', x, z, angle, {});
-  cop.chasing = true;
-  cop.speed = speed;
-  G.policeCars.push(cop);
-  G.scene.add(cop.mesh);
-  return cop;
+// 1 — car chase: player driving with two police cars on his tail.
+function stageChase() {
+  G.wanted = 3;
+  const car = playerDriveAt(55, 40, Math.PI);
+  const cop1 = makeCar({ x: 55, z: 40 - 14, angle: Math.PI, police: true, driver: 'police' });
+  const cop2 = makeCar({ x: 58.5, z: 40 - 24, angle: Math.PI, police: true, driver: 'police' });
+  cop1.speed = 15; cop2.speed = 15;
+  // A civilian car ahead for depth (parked — no route, so driver stays null).
+  makeCar({ x: 55, z: 40 + 55, angle: Math.PI, driver: null });
+  setCam(Math.PI, 0.26, 13, car.x, 2.2, car.z);
+  return 'chase staged';
 }
 
-function aimCamera(G, yawOffset = 0, dist = 9.5) {
-  // Camera sits behind the player's facing direction and stays put.
-  // A small yaw offset gives a 3/4 rear view so the player car and the
-  // trailing police are both visible in frame.
-  G.camYaw = G.player.angle + Math.PI + yawOffset;
-  G.camPitch = 0.3;
-  G.camDist = dist;
-  G.camFollowPause = 9999;
+// 2 — on-foot shootout: player aiming, two foot cops + a cruiser, muzzle flash.
+function stageFoot() {
+  const p = G.player;
+  p.x = -20; p.z = -20;
+  p.mesh.position.set(p.x, 0, p.z);
+  p.angle = Math.PI * 0.75;
+  p.mesh.rotation.y = p.angle;
+  p.aiming = true;
+  G.wanted = 3;
+  spawnFootCop(-14, -8);
+  spawnFootCop(-28, -6);
+  makeCar({ x: -34, z: -30, angle: Math.PI * 0.6, police: true, driver: 'police' });
+  // Face the camera over the player's shoulder.
+  G.camYaw = Math.PI * 0.75 + Math.PI;
+  setCam(G.camYaw, 0.22, 8, p.x, 1.8, p.z);
+  // Fire once so the muzzle flash + tracer are in frame (they hold in shot mode).
+  G.keys['KeyW'] = false;
+  shoot();
+  return 'foot shootout staged';
 }
 
-export function stageShot(G, name) {
-  G.state = 'playing';
-  G.clockMinutes = 570; // 09:30, bright morning
-  G.timeOfDay = 'day';
-  G.city.setTimeOfDay('day');
-  // A busy downtown: extra traffic + pedestrians crowded near the player.
-  const px = -41; const pz = -41; // downtown crossroads
-  G.player.x = px; G.player.z = pz; G.player.angle = Math.PI / 2; // facing east
-  for (let i = 0; i < 6; i += 1) {
-    const car = makeCar(G.rng, ['sedan', 'taxi', 'van'][i % 3], px + (G.rng() - 0.5) * 90, pz + (G.rng() - 0.5) * 60, (G.rng() < 0.5 ? 0 : Math.PI / 2), { roadAxis: 'x', roadLine: pz, dir: 1 });
-    car.speed = 12;
-    G.cars.push(car); G.scene.add(car.mesh);
-  }
-  for (let i = 0; i < 10; i += 1) {
-    // Peds ahead of the player (east) — never between the camera and the player.
-    const ped = makePed(G.rng, G.city, px + 8 + G.rng() * 55, pz + (G.rng() - 0.5) * 56);
-    G.peds.push(ped); G.scene.add(ped.mesh);
-  }
-  G.player.cash = 2000;
+// 3 — mission waypoint: player on foot near the glowing beam.
+function stageMission() {
+  setMissionIndex(1);
+  const p = G.player;
+  const m = G.missions[G.missionIndex];
+  p.x = m.target.x - 14; p.z = m.target.z - 10;
+  p.mesh.position.set(p.x, 0, p.z);
+  p.angle = Math.atan2(m.target.x - p.x, m.target.z - p.z);
+  p.mesh.rotation.y = p.angle;
+  G.wanted = 1;
+  makeCar({ x: p.x + 6, z: p.z + 4, angle: 0.4, driver: null });
+  setCam(p.angle + Math.PI, 0.3, 15, (p.x + m.target.x) / 2, 3, (p.z + m.target.z) / 2);
+  return 'mission staged';
+}
 
-  if (name === 'chase') {
-    // Cover: sports car mid-chase down Pier Row. Cops in a V around the
-    // player (ahead-left, behind-left, behind-right) so all three are in
-    // frame — trailing directly behind puts them behind the camera.
-    const car = putPlayerInCar(G, 'sports', -41, -41, Math.PI / 2);
-    car.speed = 34;
-    addCopBehind(G, -28, -52, Math.PI / 2, 32);
-    addCopBehind(G, -50, -54, Math.PI / 2, 30);
-    addCopBehind(G, -50, -28, Math.PI / 2, 29);
-    startMission(G, 2); // "Lose the Heat" — 3 stars + banner
-    G.banner = { title: '3 — Lose the Heat', sub: 'The SBPD is all over you. Lose the 3-star heat!', until: 9999 };
-    aimCamera(G, -0.35, 14);
-  } else if (name === 'foot') {
-    // On foot downtown: player on the street edge, peds + parked cars around,
-    // mission 1 marker visible up the street.
-    G.player.x = -52; G.player.z = -38;
-    G.player.angle = Math.PI / 2;
-    const parked = makeCar(G.rng, 'sedan', -46, -24, Math.PI / 2, { parked: true });
-    G.cars.push(parked); G.scene.add(parked.mesh);
-    startMission(G, 0);
-    G.banner = { title: '1 — Wheels', sub: 'Mara needs a clean ride. Steal any car.', until: 9999 };
-    aimCamera(G, 0.2, 9.5);
-  } else if (name === 'mission') {
-    // Getaway Driver: Dice picked up, 4-star chase toward the safehouse.
-    const car = putPlayerInCar(G, 'sports', -124, -41, Math.PI / 2);
-    car.speed = 30;
-    addCopBehind(G, -111, -52, Math.PI / 2, 30);
-    addCopBehind(G, -133, -54, Math.PI / 2, 29);
-    addCopBehind(G, -133, -28, Math.PI / 2, 28);
-    startMission(G, 3);
-    G.mission.pickedUp = true;
-    G.mission.target = { x: 206, z: 124, label: 'Safehouse' };
-    G.wanted.stars = 4;
-    G.banner = { title: '4 — Getaway Driver', sub: 'Dice is in! Drive him to the Safehouse.', until: 9999 };
-    aimCamera(G, -0.35, 14);
-  } else if (name === 'dusk') {
-    // The Bay Job at golden hour: beach + water behind, 5-star heat.
-    G.clockMinutes = 1090; // 18:10
-    G.timeOfDay = 'dusk';
-    G.city.setTimeOfDay('dusk');
-    const car = putPlayerInCar(G, 'sports', -206, 300, -Math.PI / 2);
-    car.speed = 26;
-    // Player faces west; cops close in from ahead and both flanks.
-    addCopBehind(G, -222, 300, -Math.PI / 2, 26);
-    addCopBehind(G, -196, 312, -Math.PI / 2, 25);
-    addCopBehind(G, -196, 288, -Math.PI / 2, 25);
-    startMission(G, 4);
-    G.mission.stage = 'escape';
-    G.mission.target = { x: -206, z: 289, label: 'Solara Beach' };
-    G.wanted.stars = 5;
-    G.banner = { title: '5 — The Bay Job', sub: 'Every cop in Solara Bay will be coming.', until: 9999 };
-    aimCamera(G, -0.3, 14);
+// 4 — dusk skyline: high camera over the city, beach and water.
+function stageDusk() {
+  setDusk(true);
+  const p = G.player;
+  p.x = 0; p.z = 180;
+  p.mesh.position.set(p.x, 0, p.z);
+  G.wanted = 0;
+  // A couple of cars with headlights on the beach road for life (parked).
+  makeCar({ x: -55, z: 240, angle: 0, driver: null });
+  makeCar({ x: 55, z: 250, angle: Math.PI, driver: null });
+  setCam(Math.PI, 0.62, 95, 0, 8, 120);
+  return 'dusk staged';
+}
+
+export function stageShot(n) {
+  G.shot = n;
+  // Keep the HUD visible — it is part of the frame.
+  switch (n) {
+    case 1: return stageChase();
+    case 2: return stageFoot();
+    case 3: return stageMission();
+    case 4: return stageDusk();
+    default: return 'unknown shot';
   }
-  simmer(G, 2);
 }
